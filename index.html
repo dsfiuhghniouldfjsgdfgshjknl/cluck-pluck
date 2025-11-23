@@ -44,7 +44,7 @@ const MUSIC_TRACKS = [
   //       🎵 track1.mp3
   //       🎵 track2.mp3
 ];
-const MUSIC_VOLUME = 0.3; // 0.0 to 1.0 - Corporate mandated levels
+const MUSIC_VOLUME = 0.2; // 0.0 to 1.0 - Corporate mandated levels
 const FADE_DURATION = 2000; // Fade in/out duration in ms - smooth transitions for sensitive chickens
 // ══════════════════════════════════════════════════════════════
 
@@ -62,12 +62,24 @@ let currentAchievementDisplay = null;
 let achievementTimer = 0;
 let activateBtnPressed = false;
 
+// NEW: Phone hide/show functionality
+let phoneHidden = false;
+let phoneHideProgress = 0;
+const PHONE_HIDE_SPEED = 0.1;
+
 // Responsive scaling - one size fits all farm equipment
 let scaleFactor = 1;
 let isMobile = false;
 let phoneX, phoneY, phoneW, phoneH;
 let chickenX, chickenY, chickenScale;
 let bananaX, bananaY;
+
+// Target positions for animation
+let targetPhoneX, targetChickenX, targetChickenY, targetBananaX, targetBananaY;
+let originalPhoneX, originalChickenX, originalChickenY, originalBananaX, originalBananaY;
+
+// Current positions for click detection
+let currentPhoneX, currentChickenX, currentChickenY, currentBananaX, currentBananaY;
 
 // Audio systems - farm-grade frequencies
 let audioCtx = null;
@@ -80,7 +92,7 @@ const reviews = [
   '⭐⭐⭐⭐⭐ "Banana pairing works flawlessly, 10/10 immersion" - WellnessGuru99',
   '⭐ "My chicken hasn\'t laid eggs since update 1.4. Please fix" - FrustratedFarmer',
   '⭐⭐⭐⭐⭐ "The Thanksgiving Panic mode changed my life" - GratefulUser',
-  '⭐⭐⭐⭐⭐ "I use this app 8 hours a day. My employer is concerned" - Anonymous',
+  '⭐⭐⭐⭐⭐ "I use this app 8 hours day. My employer is concerned" - Anonymous',
   '⭐⭐⭐⭐ "Would give 5 stars but chicken looked at me weird" - NervousNancy',
   '⭐⭐⭐⭐⭐ "Better than actual therapy" - DrFeelgood_MD',
   '⭐⭐⭐⭐⭐ "The USDA called. I didn\'t answer" - RebelFarmer2024'
@@ -95,6 +107,9 @@ function setup() {
   textFont('Segoe UI');
   calculateLayout();
   
+  // Store original positions for animation
+  storeOriginalPositions();
+  
   // Initialize music player if tracks exist
   if (MUSIC_TRACKS.length > 0) {
     musicPlayer = document.createElement('audio');
@@ -105,6 +120,34 @@ function setup() {
   }
 }
 
+// Store original positions for animation
+function storeOriginalPositions() {
+  originalPhoneX = phoneX;
+  originalChickenX = chickenX;
+  originalChickenY = chickenY;
+  originalBananaX = bananaX;
+  originalBananaY = bananaY;
+}
+
+// Calculate target positions for hide/show animation
+function calculateTargetPositions() {
+  if (isMobile) {
+    // Mobile: phone slides left, chicken and banana move to center
+    targetPhoneX = -phoneW - 50;
+    targetChickenX = width / 2;
+    targetChickenY = height / 2 - 50;
+    targetBananaX = width / 2;
+    targetBananaY = height / 2 + 100;
+  } else {
+    // Desktop: phone slides left, chicken and banana move to center-left
+    targetPhoneX = -phoneW - 50;
+    targetChickenX = width / 2 - 100;
+    targetChickenY = height / 2;
+    targetBananaX = width / 2 + 100;
+    targetBananaY = height / 2;
+  }
+}
+
 // Responsive layout calculator - fits all screen sizes from phone to jumbotron
 function calculateLayout() {
   isMobile = width < 600;
@@ -112,15 +155,16 @@ function calculateLayout() {
   if (isMobile) {
     // Mobile: stack vertically, phone UI on top
     scaleFactor = min(width / 320, 1.2);
-    phoneW = min(width * 0.9, 280 * scaleFactor);
+    // CHANGED: Slightly shrink phone by reducing the multiplier from 0.9 to 0.8
+    phoneW = min(width * 0.8, 280 * scaleFactor * 0.9); // Reduced size for better chicken visibility
     phoneH = phoneW * 1.6;
     phoneX = (width - phoneW) / 2;
     phoneY = 10;
     
-    // Chicken below phone UI
-    chickenScale = scaleFactor * 0.8;
+    // Chicken below phone UI - adjusted spacing due to smaller phone
+    chickenScale = scaleFactor * 0.9; // Slightly larger chicken
     chickenX = width / 2;
-    chickenY = phoneY + phoneH + 80 * scaleFactor;
+    chickenY = phoneY + phoneH + 60 * scaleFactor; // Reduced gap since phone is smaller
     
     bananaX = width / 2;
     bananaY = chickenY + 120 * scaleFactor;
@@ -139,6 +183,10 @@ function calculateLayout() {
     bananaX = chickenX + 200 * scaleFactor;
     bananaY = chickenY + 50 * scaleFactor;
   }
+  
+  // Update original positions and calculate targets
+  storeOriginalPositions();
+  calculateTargetPositions();
 }
 
 function initAudio() {
@@ -220,9 +268,50 @@ function playPairingSound() {
 function draw() {
   background(255, 245, 230);
   drawFarmBackground();
-  drawChicken();
-  if (hasBanana) drawBanana();
-  drawPhoneUI();
+  
+  // Update animation progress
+  if (phoneHidden && phoneHideProgress < 1) {
+    phoneHideProgress = min(phoneHideProgress + PHONE_HIDE_SPEED, 1);
+  } else if (!phoneHidden && phoneHideProgress > 0) {
+    phoneHideProgress = max(phoneHideProgress - PHONE_HIDE_SPEED, 0);
+  }
+  
+  // Calculate current positions based on animation progress
+  if (phoneHideProgress === 0) {
+    // Phone visible - use original positions
+    currentPhoneX = originalPhoneX;
+    currentChickenX = originalChickenX;
+    currentChickenY = originalChickenY;
+    currentBananaX = originalBananaX;
+    currentBananaY = originalBananaY;
+  } else if (phoneHideProgress === 1) {
+    // Phone hidden - use target positions
+    currentPhoneX = targetPhoneX;
+    currentChickenX = targetChickenX;
+    currentChickenY = targetChickenY;
+    currentBananaX = targetBananaX;
+    currentBananaY = targetBananaY;
+  } else {
+    // In between - interpolate
+    currentPhoneX = lerp(originalPhoneX, targetPhoneX, phoneHideProgress);
+    currentChickenX = lerp(originalChickenX, targetChickenX, phoneHideProgress);
+    currentChickenY = lerp(originalChickenY, targetChickenY, phoneHideProgress);
+    currentBananaX = lerp(originalBananaX, targetBananaX, phoneHideProgress);
+    currentBananaY = lerp(originalBananaY, targetBananaY, phoneHideProgress);
+  }
+  
+  // Draw elements with current positions
+  drawChicken(currentChickenX, currentChickenY);
+  if (hasBanana) drawBanana(currentBananaX, currentBananaY);
+  
+  // Only draw phone if not completely hidden or in transition
+  if (phoneHideProgress < 1) {
+    drawPhoneUI(currentPhoneX, phoneY);
+  }
+  
+  // Draw show/hide phone button
+  drawPhoneToggleButton();
+  
   if (showShop) drawShop();
   updateAchievements();
   drawReviews();
@@ -261,9 +350,9 @@ function drawFarmBackground() {
   ellipse(130 * scaleFactor, 70 * scaleFactor, 60 * scaleFactor, 40 * scaleFactor);
 }
 
-function drawChicken() {
+function drawChicken(currentX, currentY) {
   push();
-  translate(chickenX + random(-chickenShake, chickenShake), chickenY + random(-chickenShake * 0.5, chickenShake * 0.5));
+  translate(currentX + random(-chickenShake, chickenShake), currentY + random(-chickenShake * 0.5, chickenShake * 0.5));
   scale(chickenScale);
   
   fill(255, 248, 220);
@@ -323,9 +412,9 @@ function drawChicken() {
   pop();
 }
 
-function drawBanana() {
+function drawBanana(currentX, currentY) {
   push();
-  translate(bananaX + random(-bananaShake, bananaShake), bananaY + random(-bananaShake * 0.5, bananaShake * 0.5));
+  translate(currentX + random(-bananaShake, bananaShake), currentY + random(-bananaShake * 0.5, bananaShake * 0.5));
   scale(chickenScale);
   rotate(-0.3);
   
@@ -355,50 +444,89 @@ function drawBanana() {
   pop();
 }
 
-function drawPhoneUI() {
+// NEW: Draw the phone toggle button
+function drawPhoneToggleButton() {
+  let btnSize = 50 * scaleFactor;
+  let btnX, btnY;
+  
+  if (phoneHidden) {
+    // Show button on left side when phone is hidden
+    btnX = 10;
+    btnY = height - btnSize - 40;
+  } else {
+    // Hide button at bottom of phone
+    let s = phoneW / 280;
+    let btnYPhone = phoneY + 215 * s;
+    let btnH = max(45 * s, 44);
+    btnX = phoneX + 25 * s;
+    btnY = btnYPhone + btnH + 100 * s;
+  }
+  
+  fill(120, 120, 200);
+  stroke(90, 90, 180);
+  strokeWeight(2);
+  rect(btnX, btnY, phoneHidden ? btnSize * 1.5 : phoneW - 50 * (phoneW/280), 35 * scaleFactor, 8 * scaleFactor);
+  
+  fill(255);
+  textSize(12 * scaleFactor);
+  textAlign(CENTER, CENTER);
+  text(phoneHidden ? "Show Phone" : "👁️ Hide Phone", 
+       btnX + (phoneHidden ? btnSize * 0.75 : (phoneW - 50 * (phoneW/280)) / 2), 
+       btnY + 17.5 * scaleFactor);
+  
+  // Store button position for click detection
+  window.phoneToggleBtn = {
+    x: btnX, 
+    y: btnY, 
+    w: phoneHidden ? btnSize * 1.5 : phoneW - 50 * (phoneW/280), 
+    h: 35 * scaleFactor
+  };
+}
+
+function drawPhoneUI(currentX, currentY) {
   let s = phoneW / 280; // Scale factor relative to base size
   
   fill(60, 60, 70);
   stroke(100, 100, 110);
   strokeWeight(3);
-  rect(phoneX, phoneY, phoneW, phoneH, 25 * s);
+  rect(currentX, currentY, phoneW, phoneH, 25 * s);
   
   fill(250, 245, 255);
   noStroke();
-  rect(phoneX + 10 * s, phoneY + 40 * s, phoneW - 20 * s, phoneH - 80 * s, 15 * s);
+  rect(currentX + 10 * s, currentY + 40 * s, phoneW - 20 * s, phoneH - 80 * s, 15 * s);
   
   fill(180, 150, 220);
-  rect(phoneX + 10 * s, phoneY + 40 * s, phoneW - 20 * s, 50 * s, 15 * s, 15 * s, 0, 0);
+  rect(currentX + 10 * s, currentY + 40 * s, phoneW - 20 * s, 50 * s, 15 * s, 15 * s, 0, 0);
   fill(255);
   textSize(18 * s);
   textAlign(CENTER);
   textStyle(BOLD);
-  text("CluckControl Pro™", phoneX + phoneW / 2, phoneY + 72 * s);
+  text("CluckControl Pro™", currentX + phoneW / 2, currentY + 72 * s);
   
   textStyle(NORMAL);
   fill(80);
   textSize(12 * s);
   textAlign(LEFT);
-  text("Chicken Satisfaction™", phoneX + 25 * s, phoneY + 115 * s);
+  text("Chicken Satisfaction™", currentX + 25 * s, currentY + 115 * s);
   
   fill(220);
-  rect(phoneX + 25 * s, phoneY + 125 * s, phoneW - 50 * s, 25 * s, 12 * s);
+  rect(currentX + 25 * s, currentY + 125 * s, phoneW - 50 * s, 25 * s, 12 * s);
   
   let fillWidth = map(constrain(satisfaction, 0, 10000), 0, 10000, 0, phoneW - 54 * s);
   fill(lerpColor(color(255, 150, 150), color(150, 255, 150), satisfaction / 10000));
-  rect(phoneX + 27 * s, phoneY + 127 * s, fillWidth, 21 * s, 10 * s);
+  rect(currentX + 27 * s, currentY + 127 * s, fillWidth, 21 * s, 10 * s);
   
   fill(80);
   textAlign(RIGHT);
-  text(floor(satisfaction) + " pts", phoneX + phoneW - 25 * s, phoneY + 143 * s);
+  text(floor(satisfaction) + " pts", currentX + phoneW - 25 * s, currentY + 143 * s);
   
   textAlign(LEFT);
-  text("Wellness Intensity™", phoneX + 25 * s, phoneY + 180 * s);
+  text("Wellness Intensity™", currentX + 25 * s, currentY + 180 * s);
   
   let btnW = (phoneW - 50 * s - 15 * s) / 4;
   for (let i = 0; i < 4; i++) {
-    let bx = phoneX + 25 * s + i * (btnW + 5 * s);
-    let by = phoneY + 190 * s;
+    let bx = currentX + 25 * s + i * (btnW + 5 * s);
+    let by = currentY + 190 * s;
     fill(i === intensityLevel ? color(180, 150, 220) : 240);
     stroke(i === intensityLevel ? color(140, 110, 180) : 200);
     strokeWeight(2);
@@ -414,50 +542,50 @@ function drawPhoneUI() {
     }
   }
   
-  let btnY = phoneY + 260 * s;
+  let btnY = currentY + 260 * s;
   let btnH = max(45 * s, 44);
   
   // ACTIVATE WELLNESS button with press state
   fill(activateBtnPressed ? color(70, 170, 120) : color(100, 200, 150));
   stroke(70, 170, 120);
   strokeWeight(2);
-  rect(phoneX + 25 * s, btnY, phoneW - 50 * s, btnH, 10 * s);
+  rect(currentX + 25 * s, btnY, phoneW - 50 * s, btnH, 10 * s);
   fill(255);
   textSize(14 * s);
   textStyle(BOLD);
   textAlign(CENTER);
-  text("ACTIVATE WELLNESS", phoneX + phoneW / 2, btnY + btnH / 2 + 5 * s);
+  text("ACTIVATE WELLNESS", currentX + phoneW / 2, btnY + btnH / 2 + 5 * s);
   
   textStyle(NORMAL);
   fill(255, 200, 100);
   stroke(230, 170, 70);
-  rect(phoneX + 25 * s, btnY + btnH + 10 * s, phoneW - 50 * s, 35 * s, 8 * s);
+  rect(currentX + 25 * s, btnY + btnH + 10 * s, phoneW - 50 * s, 35 * s, 8 * s);
   fill(80);
   textSize(12 * s);
-  text("🛒 Premium Shop", phoneX + phoneW / 2, btnY + btnH + 10 * s + 22 * s);
+  text("🛒 Premium Shop", currentX + phoneW / 2, btnY + btnH + 10 * s + 22 * s);
   
   if (hasBanana && !devicesPaired) {
     fill(100, 180, 255);
     stroke(70, 150, 225);
-    rect(phoneX + 25 * s, btnY + btnH + 55 * s, phoneW - 50 * s, 35 * s, 8 * s);
+    rect(currentX + 25 * s, btnY + btnH + 55 * s, phoneW - 50 * s, 35 * s, 8 * s);
     fill(255);
-    text("🔗 Pair Devices", phoneX + phoneW / 2, btnY + btnH + 55 * s + 22 * s);
+    text("🔗 Pair Devices", currentX + phoneW / 2, btnY + btnH + 55 * s + 22 * s);
   } else if (devicesPaired) {
     fill(100, 255, 150);
     noStroke();
-    rect(phoneX + 25 * s, btnY + btnH + 55 * s, phoneW - 50 * s, 35 * s, 8 * s);
+    rect(currentX + 25 * s, btnY + btnH + 55 * s, phoneW - 50 * s, 35 * s, 8 * s);
     fill(50);
-    text("✓ DUAL MODE ACTIVE", phoneX + phoneW / 2, btnY + btnH + 55 * s + 22 * s);
+    text("✓ DUAL MODE ACTIVE", currentX + phoneW / 2, btnY + btnH + 55 * s + 22 * s);
   }
   
   fill(80);
   textSize(10 * s);
   textAlign(LEFT);
-  text("📶 Farm-Fi  🔋 98%", phoneX + 25 * s, phoneY + phoneH - 25 * s);
+  text("📶 Farm-Fi  🔋 98%", currentX + 25 * s, currentY + phoneH - 25 * s);
   textSize(8 * s);
   fill(150);
   textAlign(CENTER);
-  text("© 2024 CluckTech Industries", phoneX + phoneW / 2, phoneY + phoneH - 10 * s);
+  text("© 2024 CluckTech Industries", currentX + phoneW / 2, currentY + phoneH - 10 * s);
 }
 
 function drawShop() {
@@ -586,15 +714,15 @@ function updateAchievements() {
   }
 }
 
-function getButtonBounds() {
+function getButtonBounds(currentX, currentY) {
   let s = phoneW / 280;
-  let btnY = phoneY + 260 * s;
+  let btnY = currentY + 260 * s;
   let btnH = max(45 * s, 44);
   
   return {
-    activate: { x: phoneX + 25 * s, y: btnY, w: phoneW - 50 * s, h: btnH },
-    shop: { x: phoneX + 25 * s, y: btnY + btnH + 10 * s, w: phoneW - 50 * s, h: 35 * s },
-    pair: { x: phoneX + 25 * s, y: btnY + btnH + 55 * s, w: phoneW - 50 * s, h: 35 * s },
+    activate: { x: currentX + 25 * s, y: btnY, w: phoneW - 50 * s, h: btnH },
+    shop: { x: currentX + 25 * s, y: btnY + btnH + 10 * s, w: phoneW - 50 * s, h: 35 * s },
+    pair: { x: currentX + 25 * s, y: btnY + btnH + 55 * s, w: phoneW - 50 * s, h: 35 * s },
     intensity: []
   };
 }
@@ -603,16 +731,103 @@ function hitTest(x, y, btn) {
   return x > btn.x && x < btn.x + btn.w && y > btn.y && y < btn.y + btn.h;
 }
 
+// NEW: Check if click is on chicken
+function isClickOnChicken(x, y, chickenX, chickenY) {
+  // Simple circle hit detection for the chicken body
+  let chickenRadius = 80 * chickenScale;
+  return dist(x, y, chickenX, chickenY) < chickenRadius;
+}
+
+// NEW: Check if click is on banana
+function isClickOnBanana(x, y, bananaX, bananaY) {
+  // Simple circle hit detection for the banana
+  let bananaRadius = 60 * chickenScale;
+  return dist(x, y, bananaX, bananaY) < bananaRadius;
+}
+
 function mousePressed() {
   initAudio();
   
+  // NEW: Check phone toggle button first
+  if (window.phoneToggleBtn && 
+      mouseX > window.phoneToggleBtn.x && 
+      mouseX < window.phoneToggleBtn.x + window.phoneToggleBtn.w &&
+      mouseY > window.phoneToggleBtn.y && 
+      mouseY < window.phoneToggleBtn.y + window.phoneToggleBtn.h) {
+    phoneHidden = !phoneHidden;
+    playBeep(500, 0.1);
+    return;
+  }
+  
+  // NEW: Check if clicking on chicken when phone is hidden
+  if (phoneHidden) {
+    if (isClickOnChicken(mouseX, mouseY, currentChickenX, currentChickenY)) {
+      activateWellness();
+      return;
+    }
+    
+    // Also check if clicking on banana when paired
+    if (devicesPaired && hasBanana && isClickOnBanana(mouseX, mouseY, currentBananaX, currentBananaY)) {
+      activateWellness();
+      return;
+    }
+  }
+  
+  // Calculate current phone position for hit testing
+  let currentPhoneX = phoneHideProgress === 0 ? originalPhoneX : 
+                     phoneHideProgress === 1 ? targetPhoneX :
+                     lerp(originalPhoneX, targetPhoneX, phoneHideProgress);
+  
   let s = phoneW / 280;
-  let bounds = getButtonBounds();
+  let bounds = getButtonBounds(currentPhoneX, phoneY);
+  
+  // FIX: Check shop interactions first before phone UI buttons
+  if (showShop) {
+    let shopW = min(350 * scaleFactor, width * 0.9);
+    let shopH = shopW * 0.85;
+    let shopX = (width - shopW) / 2;
+    let shopY = (height - shopH) / 2;
+    let ss = shopW / 350;
+    
+    // Check for close button
+    if (dist(mouseX, mouseY, shopX + shopW - 20 * ss, shopY + 20 * ss) < 20 * ss) {
+      showShop = false;
+      playBeep(400, 0.1);
+      return;
+    }
+    
+    // Check for purchase button
+    if (mouseX > shopX + 50 * ss && mouseX < shopX + shopW - 50 * ss &&
+        mouseY > shopY + 190 * ss && mouseY < shopY + 230 * ss) {
+      if (satisfaction >= 5000 && !hasBanana) {
+        satisfaction -= 5000;
+        hasBanana = true;
+        playBeep(800, 0.3);
+        unlockAchievement("Why Did The Chicken Cross The Road?");
+      }
+      // Don't close the shop after purchase
+      playBeep(400, 0.1);
+      return;
+    }
+    
+    // If we clicked in the shop but not on any buttons, don't do anything else
+    if (mouseX > shopX && mouseX < shopX + shopW && 
+        mouseY > shopY && mouseY < shopY + shopH) {
+      return;
+    } else {
+      // Clicked outside shop - close it
+      showShop = false;
+      return;
+    }
+  }
+  
+  // If phone is hidden, don't process phone buttons
+  if (phoneHidden) return;
   
   // Intensity buttons
   let btnW = (phoneW - 50 * s - 15 * s) / 4;
   for (let i = 0; i < 4; i++) {
-    let bx = phoneX + 25 * s + i * (btnW + 5 * s);
+    let bx = currentPhoneX + 25 * s + i * (btnW + 5 * s);
     let by = phoneY + 190 * s;
     if (mouseX > bx && mouseX < bx + btnW && mouseY > by && mouseY < by + 45 * s) {
       intensityLevel = i;
@@ -630,7 +845,7 @@ function mousePressed() {
   
   // Shop button
   if (hitTest(mouseX, mouseY, bounds.shop)) {
-    showShop = !showShop;
+    showShop = true;
     playBeep(400, 0.1);
     return;
   }
@@ -643,38 +858,24 @@ function mousePressed() {
     unlockAchievement("Farm-to-Table Multitasking");
     return;
   }
-  
-  // Shop modal
-  if (showShop) {
-    let shopW = min(350 * scaleFactor, width * 0.9);
-    let shopH = shopW * 0.85;
-    let shopX = (width - shopW) / 2;
-    let shopY = (height - shopH) / 2;
-    let ss = shopW / 350;
-    
-    if (dist(mouseX, mouseY, shopX + shopW - 20 * ss, shopY + 20 * ss) < 20 * ss) {
-      showShop = false;
-      return;
-    }
-    
-    if (mouseX > shopX + 50 * ss && mouseX < shopX + shopW - 50 * ss &&
-        mouseY > shopY + 190 * ss && mouseY < shopY + 230 * ss) {
-      if (satisfaction >= 5000 && !hasBanana) {
-        satisfaction -= 5000;
-        hasBanana = true;
-        playBeep(800, 0.3);
-        unlockAchievement("Why Did The Chicken Cross The Road?");
-      }
-    }
-    return;
-  }
 }
 
 function mouseDragged() {
   if (!showShop) {
-    let bounds = getButtonBounds();
-    if (hitTest(mouseX, mouseY, bounds.activate)) {
-      activateWellness();
+    // NEW: Allow dragging on chicken when phone is hidden
+    if (phoneHidden) {
+      if (isClickOnChicken(mouseX, mouseY, currentChickenX, currentChickenY) ||
+          (devicesPaired && hasBanana && isClickOnBanana(mouseX, mouseY, currentBananaX, currentBananaY))) {
+        activateWellness();
+      }
+    } else {
+      let currentPhoneX = phoneHideProgress === 0 ? originalPhoneX : 
+                         phoneHideProgress === 1 ? targetPhoneX :
+                         lerp(originalPhoneX, targetPhoneX, phoneHideProgress);
+      let bounds = getButtonBounds(currentPhoneX, phoneY);
+      if (hitTest(mouseX, mouseY, bounds.activate)) {
+        activateWellness();
+      }
     }
   }
 }
