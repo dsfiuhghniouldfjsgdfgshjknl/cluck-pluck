@@ -44,7 +44,7 @@ const MUSIC_TRACKS = [
   //       🎵 track1.mp3
   //       🎵 track2.mp3
 ];
-const MUSIC_VOLUME = 0.2; // 0.0 to 1.0 - Corporate mandated levels
+const MUSIC_VOLUME = 0.3; // 0.0 to 1.0 - Corporate mandated levels
 const FADE_DURATION = 2000; // Fade in/out duration in ms - smooth transitions for sensitive chickens
 // ══════════════════════════════════════════════════════════════
 
@@ -67,6 +67,10 @@ let phoneHidden = false;
 let phoneHideProgress = 0;
 const PHONE_HIDE_SPEED = 0.1;
 
+// NEW: Music control
+let musicEnabled = true;
+let musicButtonPressed = false;
+
 // Responsive scaling - one size fits all farm equipment
 let scaleFactor = 1;
 let isMobile = false;
@@ -86,6 +90,7 @@ let audioCtx = null;
 let musicPlayer = null;
 let currentTrackIndex = 0;
 let musicPlaying = false;
+let audioInitialized = false;
 
 const reviews = [
   '⭐⭐⭐⭐⭐ "Finally, an app that respects my lifestyle" - ChickenEnthusiast42',
@@ -110,13 +115,17 @@ function setup() {
   // Store original positions for animation
   storeOriginalPositions();
   
-  // Initialize music player if tracks exist
+  // Initialize music player if tracks exist - but don't start automatically
   if (MUSIC_TRACKS.length > 0) {
     musicPlayer = document.createElement('audio');
     musicPlayer.volume = 0;
     musicPlayer.loop = false;
     // Fade out before switching tracks - corporate-grade transitions
-    musicPlayer.onended = () => fadeOut(() => playNextTrack());
+    musicPlayer.onended = () => {
+      if (musicEnabled && musicPlaying) {
+        fadeOut(() => playNextTrack());
+      }
+    };
   }
 }
 
@@ -193,26 +202,48 @@ function initAudio() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().then(() => {
+      console.log("AudioContext resumed successfully");
+      audioInitialized = true;
+    }).catch(e => {
+      console.log("Error resuming AudioContext:", e);
+    });
+  } else {
+    audioInitialized = true;
+  }
   
-  // Start background music on first interaction
-  if (MUSIC_TRACKS.length > 0 && !musicPlaying) {
+  // Start background music if enabled
+  if (MUSIC_TRACKS.length > 0 && musicEnabled && !musicPlaying && audioInitialized) {
     playNextTrack();
     musicPlaying = true;
   }
 }
 
 function playNextTrack() {
-  if (MUSIC_TRACKS.length === 0 || !musicPlayer) return;
+  if (MUSIC_TRACKS.length === 0 || !musicPlayer || !musicEnabled || !audioInitialized) return;
+  
   musicPlayer.src = MUSIC_TRACKS[currentTrackIndex];
   musicPlayer.volume = 0;
-  musicPlayer.play().then(() => fadeIn()).catch(e => console.log("Music autoplay blocked - click to enable"));
+  
+  // Use a user gesture to play
+  let playPromise = musicPlayer.play();
+  
+  if (playPromise !== undefined) {
+    playPromise.then(() => {
+      fadeIn();
+    }).catch(e => {
+      console.log("Music play failed:", e);
+      musicPlaying = false;
+    });
+  }
+  
   currentTrackIndex = (currentTrackIndex + 1) % MUSIC_TRACKS.length;
 }
 
 // Smooth fade in - gentle on chicken ears
 function fadeIn() {
-  if (!musicPlayer) return;
+  if (!musicPlayer || !musicEnabled) return;
   let startTime = Date.now();
   let fadeInInterval = setInterval(() => {
     let elapsed = Date.now() - startTime;
@@ -239,7 +270,7 @@ function fadeOut(callback) {
 }
 
 function playBeep(freq, duration, type = 'sine') {
-  if (!audioCtx) return;
+  if (!audioCtx || !audioInitialized) return;
   let osc = audioCtx.createOscillator();
   let gain = audioCtx.createGain();
   osc.type = type;
@@ -253,16 +284,42 @@ function playBeep(freq, duration, type = 'sine') {
 }
 
 function playWellnessSound() {
-  if (!audioCtx) return;
+  if (!audioCtx || !audioInitialized) return;
   let baseFreq = 200 + intensityLevel * 100;
   playBeep(baseFreq + Math.random() * 100 - 50, 0.15);
 }
 
 function playPairingSound() {
-  if (!audioCtx) return;
+  if (!audioCtx || !audioInitialized) return;
   [523, 659, 784, 1047].forEach((freq, i) => {
     setTimeout(() => playBeep(freq, 0.2), i * 150);
   });
+}
+
+// NEW: Toggle music function
+function toggleMusic() {
+  musicEnabled = !musicEnabled;
+  
+  if (musicEnabled) {
+    // Turn music on
+    if (!audioInitialized) {
+      initAudio();
+    }
+    if (!musicPlaying && audioInitialized) {
+      playNextTrack();
+      musicPlaying = true;
+    }
+  } else {
+    // Turn music off
+    if (musicPlayer && musicPlaying) {
+      fadeOut(() => {
+        musicPlayer.pause();
+        musicPlaying = false;
+      });
+    } else {
+      musicPlaying = false;
+    }
+  }
 }
 
 function draw() {
@@ -312,14 +369,17 @@ function draw() {
   // Draw show/hide phone button
   drawPhoneToggleButton();
   
+  // Draw music button
+  drawMusicButton();
+  
   if (showShop) drawShop();
   updateAchievements();
   drawReviews();
-  if (MUSIC_TRACKS.length > 0) drawMusicIndicator();
   
   chickenShake *= 0.9;
   bananaShake *= 0.9;
   activateBtnPressed = false;
+  musicButtonPressed = false;
   
   if (devicesPaired && dualModeStartTime > 0) {
     let elapsed = (millis() - dualModeStartTime) / 1000;
@@ -329,15 +389,31 @@ function draw() {
   }
 }
 
-function drawMusicIndicator() {
-  let sz = 20 * scaleFactor;
-  fill(180, 150, 220);
-  noStroke();
-  ellipse(width - 30 * scaleFactor, height - 70 * scaleFactor, sz * 2);
+// NEW: Draw music toggle button
+function drawMusicButton() {
+  let btnSize = 50 * scaleFactor;
+  let btnX = width - btnSize - 10;
+  let btnY = height - btnSize - 60;
+  
+  // Draw button background
+  fill(musicButtonPressed ? color(70, 120, 180) : color(100, 150, 220));
+  stroke(70, 120, 180);
+  strokeWeight(2);
+  rect(btnX, btnY, btnSize, btnSize, 8 * scaleFactor);
+  
+  // Draw music icon
   fill(255);
-  textSize(sz);
+  textSize(20 * scaleFactor);
   textAlign(CENTER, CENTER);
-  text(musicPlaying ? "♪" : "♪", width - 30 * scaleFactor, height - 70 * scaleFactor);
+  text(musicEnabled ? "🔊" : "🔇", btnX + btnSize / 2, btnY + btnSize / 2);
+  
+  // Store button position for click detection
+  window.musicButton = {
+    x: btnX, 
+    y: btnY, 
+    w: btnSize, 
+    h: btnSize
+  };
 }
 
 function drawFarmBackground() {
@@ -455,30 +531,33 @@ function drawPhoneToggleButton() {
     btnY = height - btnSize - 40;
   } else {
     // Hide button at bottom of phone
-    let s = phoneW / 280;
+    let s = phoneW / 190;
     let btnYPhone = phoneY + 215 * s;
     let btnH = max(45 * s, 44);
     btnX = phoneX + 25 * s;
     btnY = btnYPhone + btnH + 100 * s;
   }
   
+  // Changed width to be consistent: phoneW - 50 * (phoneW/250) for both states
+  let btnWidth = phoneW - 50 * (phoneW/200);
+  
   fill(120, 120, 200);
   stroke(90, 90, 180);
   strokeWeight(2);
-  rect(btnX, btnY, phoneHidden ? btnSize * 1.5 : phoneW - 50 * (phoneW/280), 35 * scaleFactor, 8 * scaleFactor);
+  rect(btnX, btnY, btnWidth, 35 * scaleFactor, 8 * scaleFactor);
   
   fill(255);
   textSize(12 * scaleFactor);
   textAlign(CENTER, CENTER);
   text(phoneHidden ? "Show Phone" : "👁️ Hide Phone", 
-       btnX + (phoneHidden ? btnSize * 0.75 : (phoneW - 50 * (phoneW/280)) / 2), 
+       btnX + btnWidth / 2, 
        btnY + 17.5 * scaleFactor);
   
   // Store button position for click detection
   window.phoneToggleBtn = {
     x: btnX, 
     y: btnY, 
-    w: phoneHidden ? btnSize * 1.5 : phoneW - 50 * (phoneW/280), 
+    w: btnWidth, 
     h: 35 * scaleFactor
   };
 }
@@ -746,9 +825,24 @@ function isClickOnBanana(x, y, bananaX, bananaY) {
 }
 
 function mousePressed() {
-  initAudio();
+  // Initialize audio on first user interaction
+  if (!audioInitialized) {
+    initAudio();
+  }
   
-  // NEW: Check phone toggle button first
+  // NEW: Check music button first
+  if (window.musicButton && 
+      mouseX > window.musicButton.x && 
+      mouseX < window.musicButton.x + window.musicButton.w &&
+      mouseY > window.musicButton.y && 
+      mouseY < window.musicButton.y + window.musicButton.h) {
+    musicButtonPressed = true;
+    toggleMusic();
+    playBeep(600, 0.1);
+    return;
+  }
+  
+  // NEW: Check phone toggle button
   if (window.phoneToggleBtn && 
       mouseX > window.phoneToggleBtn.x && 
       mouseX < window.phoneToggleBtn.x + window.phoneToggleBtn.w &&
